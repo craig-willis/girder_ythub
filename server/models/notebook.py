@@ -73,15 +73,23 @@ class Notebook(AccessControlledModel):
             'containerId': str(notebook['containerId']),
             'containerPath': str(notebook['containerPath']),
             'mountPoint': str(notebook['mountPoint']),
+            'host': str(notebook['host']),
             'folderId': str(notebook['folderId']),
             'girder_token': str(token['_id']),
         }
+        headers = {'docker-host': str(notebook['host']),
+                   'content-type': 'application/json'}
+        # SC16: use tmpnb_url stored in the notebook model.
+        #       I said it may come in handy ;)
         requests.delete(self.model('setting').get(PluginSettings.TMPNB_URL),
-                        json=payload)
+                        json=payload, headers=headers)
         # TODO: handle error
         self.remove(notebook)
 
     def cullNotebooks(self):
+        # SC16: query all tmpnb_urls here and aggregate the results
+        #       may not be necessary if we disable 'heartbeat', but
+        #       I'm annotating it for completeness
         resp = requests.get(
             self.model('setting').get(PluginSettings.TMPNB_URL))
         content = resp.content
@@ -130,7 +138,13 @@ class Notebook(AccessControlledModel):
 
         now = datetime.datetime.utcnow()
         when = when or now
+
+        # SC16: given a folderId:
+        #    1) check if all files belong to a single assetstore,
+        #       raise error otherwise (GET /folder/{id}/listing)
+        #    2) choose proper hub_url given an assetstore id
         hub_url = self.model('setting').get(PluginSettings.TMPNB_URL)
+
         payload = {"girder_token": token['_id'],
                    "folderId": str(folder['_id'])}
 
@@ -153,12 +167,15 @@ class Notebook(AccessControlledModel):
         except ValueError:
             raise RestException('Non-JSON response: %s' % content, code=502)
 
+        # SC16: for convenience store hub_url in the notebook model
+        #       it may come handy later
         notebook = {
             'folderId': folder['_id'],
             'userId': user['_id'],
             'containerId': nb['containerId'],
             'containerPath': nb['containerPath'],
             'mountPoint': nb['mountPoint'],
+            'host': nb['host'],
             'lastActivity': now,
             'status': NotebookStatus.RUNNING,   # be optimistic for now
             'created': now,
